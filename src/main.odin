@@ -23,6 +23,7 @@ Terminal :: struct {
 }
 
 CAT_COUNT :: 5
+BLOCK_COUNT :: 6
 CAT_SIT_CHANCE  :: 0.12 // per turn, a wandering cat sits down
 CAT_WAKE_CHANCE :: 0.2 // per turn, a sitting cat gets up (sits ~5 turns on average)
 
@@ -33,6 +34,7 @@ Game :: struct {
 	turns:    int,
 	terminals: [3]Terminal,
 	cats:     [CAT_COUNT][2]int, // tiles; cats wander at random and block movement
+	blocks:   [BLOCK_COUNT][2]int, // sokoban-style: the robot pushes them, cats can't enter them
 	sitting:  [CAT_COUNT]bool, // sitting cats stay put until they decide to get up
 	flash:    int, // index+1 of the terminal bumped this turn, 0 for none
 }
@@ -71,7 +73,20 @@ on_key :: proc(e: js.Event) {
 
 reset_game :: proc() {
 	game = {pos = {10, 10}, battery = 1}
-	game.terminals = {{pos = {3, 3}, stored = 1}, {pos = {16, 16}, stored = 1}, {pos = {16, 3}, stored = 1}}
+	for &t in game.terminals {
+		t.stored = 1
+		for _ in 0 ..< 1000 {
+			t.pos = {1 + rand.int_max(BOARD_W - 2), 1 + rand.int_max(BOARD_H - 2)}
+			if !tile_occupied(t.pos) { break }
+		}
+	}
+	for &block in game.blocks {
+		for _ in 0 ..< 1000 {
+			// keep off the edges so no block starts stuck against a wall
+			block = {2 + rand.int_max(BOARD_W - 4), 2 + rand.int_max(BOARD_H - 4)}
+			if !tile_occupied(block) { break }
+		}
+	}
 	for &cat in game.cats {
 		for _ in 0 ..< 1000 {
 			cat = {1 + rand.int_max(BOARD_W - 2), 1 + rand.int_max(BOARD_H - 2)}
@@ -84,6 +99,7 @@ tile_occupied :: proc(p: [2]int) -> bool {
 	if p == game.pos { return true }
 	for t in game.terminals { if t.pos == p { return true } }
 	for c in game.cats { if c == p { return true } }
+	for b in game.blocks { if b == p { return true } }
 	return false
 }
 
@@ -124,6 +140,17 @@ take_turn :: proc(dir: [2]int) {
 			if given > 0 { game.flash = i + 1 }
 		}
 	}
+	for &b in game.blocks {
+		if b == target {
+			// push if the tile behind is free, otherwise it's just a bump
+			dest := b + dir
+			if in_bounds(dest) && !tile_occupied(dest) {
+				b = dest
+			} else {
+				bumped = true
+			}
+		}
+	}
 	for c in game.cats {
 		if c == target { bumped = true } // cats are solid; bumping one just costs a turn
 	}
@@ -145,6 +172,7 @@ take_turn :: proc(dir: [2]int) {
 SPR_ROBOT    :: [2]i32{102, 13}
 SPR_TERMINAL :: [2]i32{69, 21}
 SPR_BATTERY  :: [2]i32{54, 9}
+SPR_BLOCK    :: [2]i32{11, 36}
 SPR_WALL     :: [2]i32{0, 3}
 SPR_FLOOR    :: [2]i32{8, 5}
 SPR_CAT      :: [2]i32{1, 14} // (0,14) is a fox
@@ -168,6 +196,9 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 			wall := !in_bounds({x, y})
 			draw_tile(SPR_WALL if wall else SPR_FLOOR, f32(x), f32(y))
 		}
+	}
+	for b in game.blocks {
+		draw_tile(SPR_BLOCK, f32(b.x), f32(b.y))
 	}
 	for t, i in game.terminals {
 		if game.flash == i + 1 { draw_rect(f32(t.pos.x), f32(t.pos.y), 1, 1, {0.8, 1, 0.8, 1}) }
