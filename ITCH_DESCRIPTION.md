@@ -25,7 +25,7 @@ Theme: Cat and Robot. Restriction: Movement Input Only.
 
 **AI use**
 
-Designed in conversation with Claude Code (Claude Sonnet 5.5), which wrote the game code (Odin, compiled to WebAssembly), the web wrapper and the build setup. Design direction, theme and art selection were mine. Cat herding is a famously impossible task, and the AI helped me make it a measurable one.
+Designed in conversation with Claude Code (Claude Sonnet 5.5), which wrote the game code (Odin, compiled to WebAssembly), the web wrapper and the build setup. Design direction, theme and art selection were mine.
 
 **Credits**
 
