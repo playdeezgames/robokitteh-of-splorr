@@ -109,13 +109,12 @@ move_cats :: proc() {
 }
 
 // One player move. Nothing in the world changes except as a result of this.
-// Walking into a wall costs no turn; walking into a terminal is a bump and does.
+// Every attempted move costs a turn, including walking into a wall, a cat or a terminal.
 take_turn :: proc(dir: [2]int) {
 	target := game.pos + dir
-	if !in_bounds(target) { return }
 
 	game.flash = 0
-	bumped := false
+	bumped := !in_bounds(target) // walls are solid; bumping one just wastes a turn
 	for &t, i in game.terminals {
 		if t.pos == target {
 			bumped = true
