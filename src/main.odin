@@ -209,7 +209,7 @@ take_turn :: proc(dir: [2]int) {
 			t.stored -= given
 			if given > 0 {
 				game.flash = i + 1
-				game.message = "Recharged! Terminals refill slowly."
+				game.message = "Recharged! It refills slowly."
 			} else {
 				game.message = "That terminal is empty."
 			}
