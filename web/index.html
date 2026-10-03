@@ -33,7 +33,7 @@
 			},
 		};
 		// The tileset has opaque black backgrounds; knock them out so sprites sit on the floor.
-		let sheet = null;
+		let sheet = null, blueSheet = null;
 		const raw = new Image();
 		raw.onload = () => {
 			const c = document.createElement("canvas");
@@ -46,14 +46,26 @@
 			}
 			cg.putImageData(img, 0, 0);
 			sheet = c;
+			// copy with red and blue swapped, for the blue room
+			const b = document.createElement("canvas");
+			b.width = c.width; b.height = c.height;
+			const bg = b.getContext("2d");
+			for (let i = 0; i < img.data.length; i += 4) {
+				const r = img.data[i];
+				img.data[i] = img.data[i + 2];
+				img.data[i + 2] = r;
+			}
+			bg.putImageData(img, 0, 0);
+			blueSheet = b;
 		};
 		raw.src = "tileset.png";
 		g.imageSmoothingEnabled = false;
-		canvasImports.canvas.draw_sprite = (col, row, x, y, alpha, tiles) => {
+		canvasImports.canvas.draw_sprite = (col, row, x, y, alpha, tiles, blue) => {
 			if (!sheet) return;
+			const src = blue ? blueSheet : sheet;
 			const k = cv.width / tiles;
 			g.globalAlpha = alpha;
-			g.drawImage(sheet, col * 13 + 1, row * 13 + 1, 12, 12, x * k, cv.height - (y + 1) * k, k, k);
+			g.drawImage(src, col * 13 + 1, row * 13 + 1, 12, 12, x * k, cv.height - (y + 1) * k, k, k);
 			g.globalAlpha = 1;
 		};
 		const rgb = (r, g, b) => `rgb(${r * 255 | 0},${g * 255 | 0},${b * 255 | 0})`;

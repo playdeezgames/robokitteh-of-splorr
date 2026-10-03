@@ -10,7 +10,8 @@ You are a robot cat herder, which is an impossible job. Cats wander around the r
 - Every turn costs 3% battery. At 0% the game is over (Space or Enter restarts).
 - Walking into a terminal is a bump: you stay put and take up to 15% charge from it. Terminals refill slowly from solar power (1% per turn), so you can drain them by bumping repeatedly.
 - Cats are solid and wander randomly. Bumping one costs a turn.
-- Barrels are sokoban-style blocks: walk into one to push it a tile if the space behind it is free (otherwise it is just a bump). Cats cannot walk through them.
+- Barrels are sokoban-style blocks: walk into one to push it a tile if the space behind it is free (otherwise it is just a bump). A successful push costs 6% battery instead of 3%. Cats cannot walk through them.
+- A door sits on a random wall tile (never a corner) and stays put until a cat wanders into it: that cat leaves the board, and the door jumps to a new spot. Get every cat out through the door to clear the level; the next level has one more cat (up to 8) and a fresh layout.
 - Walking into a wall also costs a turn (and battery), so you can waste charge by bumbling into things.
 
 ## Tech

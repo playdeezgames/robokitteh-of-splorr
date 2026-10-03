@@ -11,8 +11,8 @@ foreign import canvas "canvas"
 foreign canvas {
 	clear_canvas :: proc(r, g, b: f32) ---
 	fill_rect :: proc(x, y, w, h: f32, r, g, b: f32, tiles: f32) ---
-	// tile (col,row) of assets/tileset.png (12px tiles, 1px gap) at world x,y
-	draw_sprite :: proc(col, row: i32, x, y: f32, alpha: f32, tiles: f32) ---
+	// tile (col,row) of assets/tileset.png (12px tiles, 1px gap) at world x,y; blue swaps red and blue channels
+	draw_sprite :: proc(col, row: i32, x, y: f32, alpha: f32, tiles: f32, blue: bool) ---
 }
 
 ctx: runtime.Context
@@ -22,10 +22,17 @@ Terminal :: struct {
 	stored: f32, // 0..1 solar charge available to give
 }
 
-CAT_COUNT :: 5
+MAX_CATS    :: 8
 BLOCK_COUNT :: 6
+START_CATS  :: 3 // cats on level 1; each level adds one, up to MAX_CATS
 CAT_SIT_CHANCE  :: 0.12 // per turn, a wandering cat sits down
 CAT_WAKE_CHANCE :: 0.2 // per turn, a sitting cat gets up (sits ~5 turns on average)
+
+Cat :: struct {
+	pos:     [2]int,
+	sitting: bool, // sitting cats stay put until they decide to get up
+	gone:    bool, // left through the door, or not part of this level
+}
 
 Game :: struct {
 	pos:      [2]int, // grid tile
@@ -33,9 +40,12 @@ Game :: struct {
 	dead:     bool,
 	turns:    int,
 	terminals: [3]Terminal,
-	cats:     [CAT_COUNT][2]int, // tiles; cats wander at random and block movement
+	cats:     [MAX_CATS]Cat, // cats wander at random and block movement
+	cat_count: int, // cats in this level
+	herded:   int, // cats that have left through the door this level
+	level:    int,
+	door:     [2]int, // a wall tile (never a corner) that cats can walk into to leave
 	blocks:   [BLOCK_COUNT][2]int, // sokoban-style: the robot pushes them, cats can't enter them
-	sitting:  [CAT_COUNT]bool, // sitting cats stay put until they decide to get up
 	flash:    int, // index+1 of the terminal bumped this turn, 0 for none
 }
 
@@ -43,6 +53,7 @@ WORLD_SIZE :: 20 // canvas is WORLD_SIZE x WORLD_SIZE tiles
 BOARD_W    :: WORLD_SIZE
 BOARD_H    :: WORLD_SIZE - 1 // the top row of the canvas is the HUD panel, not board
 DRAIN_PER_MOVE :: 0.03 // battery lost each turn
+PUSH_DRAIN     :: 0.06 // battery lost on a turn that successfully pushes a barrel
 BUMP_CHARGE    :: 0.15 // most battery a single bump can transfer
 SOLAR_PER_TURN :: 0.01 // terminal store refilled each turn
 
@@ -72,7 +83,20 @@ on_key :: proc(e: js.Event) {
 }
 
 reset_game :: proc() {
-	game = {pos = {10, 10}, battery = 1}
+	game = {battery = 1, level = 1}
+	setup_level()
+}
+
+// Re-rolls the whole layout. Battery, turn count and level carry over.
+setup_level :: proc() {
+	game.pos = {10, 10}
+	game.flash = 0
+	game.herded = 0
+	game.cat_count = min(START_CATS + game.level - 1, MAX_CATS)
+	game.terminals = {}
+	game.blocks = {}
+	game.cats = {}
+	place_door()
 	for &t in game.terminals {
 		t.stored = 1
 		for _ in 0 ..< 1000 {
@@ -87,18 +111,36 @@ reset_game :: proc() {
 			if !tile_occupied(block) { break }
 		}
 	}
-	for &cat in game.cats {
-		for _ in 0 ..< 1000 {
-			cat = {1 + rand.int_max(BOARD_W - 2), 1 + rand.int_max(BOARD_H - 2)}
-			if !tile_occupied(cat) { break }
+	for &cat, i in game.cats {
+		if i >= game.cat_count {
+			cat.gone = true
+			continue
 		}
+		for _ in 0 ..< 1000 {
+			cat.pos = {1 + rand.int_max(BOARD_W - 2), 1 + rand.int_max(BOARD_H - 2)}
+			if !tile_occupied(cat.pos) { break }
+		}
+	}
+}
+
+// Puts the door on a random wall tile, never a corner, and never where it already is.
+place_door :: proc() {
+	old := game.door
+	for _ in 0 ..< 1000 {
+		switch rand.int_max(4) {
+		case 0: game.door = {1 + rand.int_max(BOARD_W - 2), 0}
+		case 1: game.door = {1 + rand.int_max(BOARD_W - 2), BOARD_H - 1}
+		case 2: game.door = {0, 1 + rand.int_max(BOARD_H - 2)}
+		case 3: game.door = {BOARD_W - 1, 1 + rand.int_max(BOARD_H - 2)}
+		}
+		if game.door != old { break }
 	}
 }
 
 tile_occupied :: proc(p: [2]int) -> bool {
 	if p == game.pos { return true }
 	for t in game.terminals { if t.pos == p { return true } }
-	for c in game.cats { if c == p { return true } }
+	for c in game.cats { if !c.gone && c.pos == p { return true } }
 	for b in game.blocks { if b == p { return true } }
 	return false
 }
@@ -110,17 +152,24 @@ in_bounds :: proc(p: [2]int) -> bool {
 
 move_cats :: proc() {
 	dirs := [4][2]int{{-1, 0}, {1, 0}, {0, 1}, {0, -1}}
-	for &cat, i in game.cats {
-		if game.sitting[i] {
-			if rand.float32() < CAT_WAKE_CHANCE { game.sitting[i] = false }
+	for &cat in game.cats {
+		if cat.gone { continue }
+		if cat.sitting {
+			if rand.float32() < CAT_WAKE_CHANCE { cat.sitting = false }
 			continue
 		}
 		if rand.float32() < CAT_SIT_CHANCE {
-			game.sitting[i] = true
+			cat.sitting = true
 			continue
 		}
-		target := cat + dirs[rand.int_max(4)]
-		if in_bounds(target) && !tile_occupied(target) { cat = target }
+		target := cat.pos + dirs[rand.int_max(4)]
+		if target == game.door {
+			cat.gone = true
+			game.herded += 1
+			place_door() // each use moves the door
+		} else if in_bounds(target) && !tile_occupied(target) {
+			cat.pos = target
+		}
 	}
 }
 
@@ -130,6 +179,7 @@ take_turn :: proc(dir: [2]int) {
 	target := game.pos + dir
 
 	game.flash = 0
+	pushed := false
 	bumped := !in_bounds(target) // walls are solid; bumping one just wastes a turn
 	for &t, i in game.terminals {
 		if t.pos == target {
@@ -146,23 +196,28 @@ take_turn :: proc(dir: [2]int) {
 			dest := b + dir
 			if in_bounds(dest) && !tile_occupied(dest) {
 				b = dest
+				pushed = true
 			} else {
 				bumped = true
 			}
 		}
 	}
 	for c in game.cats {
-		if c == target { bumped = true } // cats are solid; bumping one just costs a turn
+		if !c.gone && c.pos == target { bumped = true } // cats are solid; bumping one just costs a turn
 	}
 	if !bumped { game.pos = target }
 	move_cats()
 
 	game.turns += 1
-	game.battery = min(game.battery - DRAIN_PER_MOVE, 1)
+	game.battery = min(game.battery - (PUSH_DRAIN if pushed else DRAIN_PER_MOVE), 1)
 	for &t in game.terminals {
 		t.stored = min(t.stored + SOLAR_PER_TURN, 1)
 	}
-	if game.battery <= 0 {
+
+	if game.herded >= game.cat_count {
+		game.level += 1
+		setup_level()
+	} else if game.battery <= 0 {
 		game.battery = 0
 		game.dead = true
 	}
@@ -174,11 +229,12 @@ SPR_TERMINAL :: [2]i32{69, 21}
 SPR_BATTERY  :: [2]i32{54, 9}
 SPR_BLOCK    :: [2]i32{11, 36}
 SPR_WALL     :: [2]i32{0, 3}
+SPR_DOOR     :: [2]i32{4, 1}
 SPR_FLOOR    :: [2]i32{8, 5}
 SPR_CAT      :: [2]i32{1, 14} // (0,14) is a fox
 
-draw_tile :: proc(spr: [2]i32, x, y: f32, alpha: f32 = 1) {
-	draw_sprite(spr.x, spr.y, x, y, alpha, WORLD_SIZE)
+draw_tile :: proc(spr: [2]i32, x, y: f32, alpha: f32 = 1, blue := false) {
+	draw_sprite(spr.x, spr.y, x, y, alpha, WORLD_SIZE, blue)
 }
 
 draw_rect :: proc(x, y, w, h: f32, color: [4]f32) {
@@ -194,9 +250,14 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 	for y in 0 ..< BOARD_H {
 		for x in 0 ..< BOARD_W {
 			wall := !in_bounds({x, y})
-			draw_tile(SPR_WALL if wall else SPR_FLOOR, f32(x), f32(y))
+			if wall {
+				draw_tile(SPR_WALL, f32(x), f32(y), blue = true) // it's a blue room
+			} else {
+				draw_tile(SPR_FLOOR, f32(x), f32(y))
+			}
 		}
 	}
+	draw_tile(SPR_DOOR, f32(game.door.x), f32(game.door.y))
 	for b in game.blocks {
 		draw_tile(SPR_BLOCK, f32(b.x), f32(b.y))
 	}
@@ -206,7 +267,7 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 		draw_tile(SPR_TERMINAL, f32(t.pos.x), f32(t.pos.y), 0.3 + 0.7 * t.stored)
 	}
 	for c in game.cats {
-		draw_tile(SPR_CAT, f32(c.x), f32(c.y))
+		if !c.gone { draw_tile(SPR_CAT, f32(c.pos.x), f32(c.pos.y)) }
 	}
 	draw_tile(SPR_ROBOT, f32(game.pos.x), f32(game.pos.y), 0.4 if game.dead else 1)
 
@@ -219,5 +280,10 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 	bar := [4]f32{0.3, 0.9, 0.4, 1}
 	if game.battery < 0.25 { bar = {0.95, 0.25, 0.2, 1} }
 	draw_rect(1.7, top + 0.2, 6 * game.battery, 0.6, bar)
+
+	// herding progress: one cat icon per cat in the level, bright once it has left through the door
+	for i in 0 ..< game.cat_count {
+		draw_tile(SPR_CAT, 19.0 - f32(game.cat_count - i), top, 1 if i < game.herded else 0.25)
+	}
 	return true
 }
