@@ -37,7 +37,9 @@ Game :: struct {
 	flash:    int, // index+1 of the terminal bumped this turn, 0 for none
 }
 
-WORLD_SIZE :: 20 // tiles per side
+WORLD_SIZE :: 20 // canvas is WORLD_SIZE x WORLD_SIZE tiles
+BOARD_W    :: WORLD_SIZE
+BOARD_H    :: WORLD_SIZE - 1 // the top row of the canvas is the HUD panel, not board
 DRAIN_PER_MOVE :: 0.03 // battery lost each turn
 BUMP_CHARGE    :: 0.15 // most battery a single bump can transfer
 SOLAR_PER_TURN :: 0.01 // terminal store refilled each turn
@@ -72,7 +74,7 @@ reset_game :: proc() {
 	game.terminals = {{pos = {3, 3}, stored = 1}, {pos = {16, 16}, stored = 1}, {pos = {16, 3}, stored = 1}}
 	for &cat in game.cats {
 		for _ in 0 ..< 1000 {
-			cat = {rand.int_max(WORLD_SIZE), rand.int_max(WORLD_SIZE)}
+			cat = {1 + rand.int_max(BOARD_W - 2), 1 + rand.int_max(BOARD_H - 2)}
 			if !tile_occupied(cat) { break }
 		}
 	}
@@ -85,8 +87,9 @@ tile_occupied :: proc(p: [2]int) -> bool {
 	return false
 }
 
+// Walkable area: everything inside the ring of wall tiles.
 in_bounds :: proc(p: [2]int) -> bool {
-	return p.x >= 0 && p.y >= 0 && p.x < WORLD_SIZE && p.y < WORLD_SIZE
+	return p.x >= 1 && p.y >= 1 && p.x <= BOARD_W - 2 && p.y <= BOARD_H - 2
 }
 
 move_cats :: proc() {
@@ -143,6 +146,8 @@ take_turn :: proc(dir: [2]int) {
 SPR_ROBOT    :: [2]i32{102, 13}
 SPR_TERMINAL :: [2]i32{69, 21}
 SPR_BATTERY  :: [2]i32{54, 9}
+SPR_WALL     :: [2]i32{0, 3}
+SPR_FLOOR    :: [2]i32{8, 5}
 SPR_CAT      :: [2]i32{1, 14} // (0,14) is a fox
 
 draw_tile :: proc(spr: [2]i32, x, y: f32, alpha: f32 = 1) {
@@ -159,6 +164,12 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 	context = ctx
 
 	clear_canvas(0.08, 0.08, 0.12)
+	for y in 0 ..< BOARD_H {
+		for x in 0 ..< BOARD_W {
+			wall := !in_bounds({x, y})
+			draw_tile(SPR_WALL if wall else SPR_FLOOR, f32(x), f32(y))
+		}
+	}
 	for t, i in game.terminals {
 		if game.flash == i + 1 { draw_rect(f32(t.pos.x), f32(t.pos.y), 1, 1, {0.8, 1, 0.8, 1}) }
 		// dim when drained, brighter as the solar store fills
@@ -169,11 +180,14 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 	}
 	draw_tile(SPR_ROBOT, f32(game.pos.x), f32(game.pos.y), 0.4 if game.dead else 1)
 
-	// battery bar, top-left
-	draw_tile(SPR_BATTERY, 0.5, WORLD_SIZE - 1.4)
-	draw_rect(1.7, WORLD_SIZE - 1.0, 6, 0.6, {0.2, 0.2, 0.25, 1})
+	// HUD panel: the canvas row above the board, visibly not part of the playfield
+	top := f32(BOARD_H)
+	draw_rect(0, top, WORLD_SIZE, 1, {0.16, 0.17, 0.22, 1})
+	draw_rect(0, top, WORLD_SIZE, 0.08, {0.45, 0.47, 0.55, 1}) // edge where the board's top wall meets the panel
+	draw_tile(SPR_BATTERY, 0.5, top)
+	draw_rect(1.7, top + 0.2, 6, 0.6, {0.2, 0.2, 0.25, 1})
 	bar := [4]f32{0.3, 0.9, 0.4, 1}
 	if game.battery < 0.25 { bar = {0.95, 0.25, 0.2, 1} }
-	draw_rect(1.7, WORLD_SIZE - 1.0, 6 * game.battery, 0.6, bar)
+	draw_rect(1.7, top + 0.2, 6 * game.battery, 0.6, bar)
 	return true
 }

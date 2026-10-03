@@ -32,11 +32,25 @@
 				},
 			},
 		};
-		const sheet = new Image();
-		sheet.src = "tileset.png";
+		// The tileset has opaque black backgrounds; knock them out so sprites sit on the floor.
+		let sheet = null;
+		const raw = new Image();
+		raw.onload = () => {
+			const c = document.createElement("canvas");
+			c.width = raw.naturalWidth; c.height = raw.naturalHeight;
+			const cg = c.getContext("2d");
+			cg.drawImage(raw, 0, 0);
+			const img = cg.getImageData(0, 0, c.width, c.height);
+			for (let i = 0; i < img.data.length; i += 4) {
+				if (img.data[i] + img.data[i + 1] + img.data[i + 2] === 0) img.data[i + 3] = 0;
+			}
+			cg.putImageData(img, 0, 0);
+			sheet = c;
+		};
+		raw.src = "tileset.png";
 		g.imageSmoothingEnabled = false;
 		canvasImports.canvas.draw_sprite = (col, row, x, y, alpha, tiles) => {
-			if (!sheet.complete || !sheet.naturalWidth) return;
+			if (!sheet) return;
 			const k = cv.width / tiles;
 			g.globalAlpha = alpha;
 			g.drawImage(sheet, col * 13 + 1, row * 13 + 1, 12, 12, x * k, cv.height - (y + 1) * k, k, k);
