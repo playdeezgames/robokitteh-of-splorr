@@ -6,6 +6,8 @@ You are a robot cat herder, which is an impossible job. Cats wander around the r
 
 ## How it plays
 
+An instructions screen is shown on start. During play the top panel shows battery (icon, bar, percent), the level, and one cat icon per cat in the level (bright once that cat has left). Short event messages appear along the bottom of the board, and a game-over screen shows how far you got.
+
 - Turn based on a grid. Each arrow-key or WASD press moves one tile, and that press is one turn. Nothing happens between presses.
 - Every turn costs 3% battery. At 0% the game is over (Space or Enter restarts).
 - Walking into a terminal is a bump: you stay put and take up to 15% charge from it. Terminals refill slowly from solar power (1% per turn), so you can drain them by bumping repeatedly.

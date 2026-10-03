@@ -1,6 +1,7 @@
 package main
 
 import "base:runtime"
+import "core:fmt"
 import "core:math/rand"
 import "core:sys/wasm/js"
 import "core:time"
@@ -10,9 +11,9 @@ foreign import canvas "canvas"
 @(default_calling_convention = "contextless")
 foreign canvas {
 	clear_canvas :: proc(r, g, b: f32) ---
-	fill_rect :: proc(x, y, w, h: f32, r, g, b: f32, tiles: f32) ---
-	// tile (col,row) of assets/tileset.png (12px tiles, 1px gap) at world x,y; blue swaps red and blue channels
-	draw_sprite :: proc(col, row: i32, x, y: f32, alpha: f32, tiles: f32, blue: bool) ---
+	fill_rect :: proc(x, y, w, h: f32, r, g, b, a: f32, tiles: f32) ---
+	// tile (col,row) of assets/tileset.png (12px tiles, 1px gap) at world x,y; blue swaps red and blue channels; size is the drawn width and height in world units
+	draw_sprite :: proc(col, row: i32, x, y: f32, alpha: f32, tiles: f32, blue: bool, size: f32) ---
 }
 
 ctx: runtime.Context
@@ -34,10 +35,18 @@ Cat :: struct {
 	gone:    bool, // left through the door, or not part of this level
 }
 
+State :: enum {
+	Intro, // instructions screen until the first key press
+	Playing,
+	Dead, // battery ran out
+}
+
 Game :: struct {
+	state:    State,
+	message:  string, // one-line event banner, cleared on the next turn
+	total_herded: int, // cats sent through the door over the whole run
 	pos:      [2]int, // grid tile
 	battery:  f32, // 0..1
-	dead:     bool,
 	turns:    int,
 	terminals: [3]Terminal,
 	cats:     [MAX_CATS]Cat, // cats wander at random and block movement
@@ -75,15 +84,22 @@ on_key :: proc(e: js.Event) {
 	case "ArrowUp", "KeyW":    dir = {0, 1}
 	case "ArrowDown", "KeyS":  dir = {0, -1}
 	case "Space", "Enter":
-		if game.dead { reset_game() }
 	case: return
 	}
 	js.event_prevent_default()
-	if dir != {} && !game.dead { take_turn(dir) }
+	switch game.state {
+	case .Intro:
+		game.state = .Playing
+	case .Dead:
+		if dir == {} { reset_game() }
+	case .Playing:
+		if dir != {} { take_turn(dir) }
+	}
 }
 
 reset_game :: proc() {
-	game = {battery = 1, level = 1}
+	intro := game.state == .Intro // main() starts on the intro screen; restarts skip it
+	game = {battery = 1, level = 1, state = .Intro if intro else .Playing}
 	setup_level()
 }
 
@@ -166,6 +182,8 @@ move_cats :: proc() {
 		if target == game.door {
 			cat.gone = true
 			game.herded += 1
+			game.total_herded += 1
+			game.message = "A cat left through the door!"
 			place_door() // each use moves the door
 		} else if in_bounds(target) && !tile_occupied(target) {
 			cat.pos = target
@@ -179,15 +197,22 @@ take_turn :: proc(dir: [2]int) {
 	target := game.pos + dir
 
 	game.flash = 0
+	game.message = ""
 	pushed := false
 	bumped := !in_bounds(target) // walls are solid; bumping one just wastes a turn
+	if bumped { game.message = "Ouch, a wall. That cost battery." }
 	for &t, i in game.terminals {
 		if t.pos == target {
 			bumped = true
 			given := min(BUMP_CHARGE, t.stored)
 			game.battery += given
 			t.stored -= given
-			if given > 0 { game.flash = i + 1 }
+			if given > 0 {
+				game.flash = i + 1
+				game.message = "Recharged! Terminals refill slowly."
+			} else {
+				game.message = "That terminal is empty."
+			}
 		}
 	}
 	for &b in game.blocks {
@@ -197,13 +222,18 @@ take_turn :: proc(dir: [2]int) {
 			if in_bounds(dest) && !tile_occupied(dest) {
 				b = dest
 				pushed = true
+				game.message = "Pushing a barrel costs extra."
 			} else {
 				bumped = true
+				game.message = "The barrel won't budge."
 			}
 		}
 	}
 	for c in game.cats {
-		if !c.gone && c.pos == target { bumped = true } // cats are solid; bumping one just costs a turn
+		if !c.gone && c.pos == target {
+			bumped = true
+			game.message = "The cat ignores you."
+		} // cats are solid; bumping one just costs a turn
 	}
 	if !bumped { game.pos = target }
 	move_cats()
@@ -217,9 +247,10 @@ take_turn :: proc(dir: [2]int) {
 	if game.herded >= game.cat_count {
 		game.level += 1
 		setup_level()
+		game.message = "Level clear! More cats ahead."
 	} else if game.battery <= 0 {
 		game.battery = 0
-		game.dead = true
+		game.state = .Dead
 	}
 }
 
@@ -234,11 +265,51 @@ SPR_FLOOR    :: [2]i32{8, 5}
 SPR_CAT      :: [2]i32{1, 14} // (0,14) is a fox
 
 draw_tile :: proc(spr: [2]i32, x, y: f32, alpha: f32 = 1, blue := false) {
-	draw_sprite(spr.x, spr.y, x, y, alpha, WORLD_SIZE, blue)
+	draw_sprite(spr.x, spr.y, x, y, alpha, WORLD_SIZE, blue, 1)
 }
 
 draw_rect :: proc(x, y, w, h: f32, color: [4]f32) {
-	fill_rect(x, y, w, h, color.r, color.g, color.b, WORLD_SIZE)
+	fill_rect(x, y, w, h, color.r, color.g, color.b, color.a, WORLD_SIZE)
+}
+
+// Bitmap font: glyphs live in rows 44-47 of the tileset, starting at column 78.
+FONT_COL :: 78
+FONT_ROWS := [4]struct {
+	row:   i32,
+	chars: string,
+}{
+	{44, "ABCDEFGHIJKLMNOPQRST12345"},
+	{45, "UVWXYZabcdefghijklmn67890"},
+	{46, "opqrstuvwxyz()[]{}<>+-?!^"},
+	{47, ":#_@%~$\"'&*=`|/\\.,;"},
+}
+TEXT_SIZE :: 0.6 // 24px per 12px glyph, an exact 2x so pixels stay crisp
+LINE_HEIGHT :: 0.9
+
+draw_text :: proc(s: string, x, y: f32, size: f32 = TEXT_SIZE) {
+	for i in 0 ..< len(s) {
+		for fr in FONT_ROWS {
+			for j in 0 ..< len(fr.chars) {
+				if fr.chars[j] == s[i] {
+					draw_sprite(FONT_COL + i32(j), fr.row, x + f32(i) * size, y, 1, WORLD_SIZE, false, size)
+				}
+			}
+		}
+	}
+}
+
+draw_text_centered :: proc(s: string, y: f32) {
+	draw_text(s, (WORLD_SIZE - f32(len(s)) * TEXT_SIZE) / 2, y)
+}
+
+// Dark panel across the board with centered lines of text.
+draw_panel :: proc(lines: []string) {
+	h := f32(len(lines)) * LINE_HEIGHT + 0.6
+	y0 := f32(BOARD_H) / 2 + h / 2
+	draw_rect(1, y0 - h, WORLD_SIZE - 2, h, {0.03, 0.04, 0.12, 0.93})
+	for line, i in lines {
+		draw_text_centered(line, y0 - 0.3 - LINE_HEIGHT * f32(i + 1) + 0.3)
+	}
 }
 
 // Only draws; all state changes happen in take_turn.
@@ -269,21 +340,56 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 	for c in game.cats {
 		if !c.gone { draw_tile(SPR_CAT, f32(c.pos.x), f32(c.pos.y)) }
 	}
-	draw_tile(SPR_ROBOT, f32(game.pos.x), f32(game.pos.y), 0.4 if game.dead else 1)
+	draw_tile(SPR_ROBOT, f32(game.pos.x), f32(game.pos.y), 0.4 if game.state == .Dead else 1)
 
 	// HUD panel: the canvas row above the board, visibly not part of the playfield
 	top := f32(BOARD_H)
 	draw_rect(0, top, WORLD_SIZE, 1, {0.16, 0.17, 0.22, 1})
 	draw_rect(0, top, WORLD_SIZE, 0.08, {0.45, 0.47, 0.55, 1}) // edge where the board's top wall meets the panel
 	draw_tile(SPR_BATTERY, 0.5, top)
-	draw_rect(1.7, top + 0.2, 6, 0.6, {0.2, 0.2, 0.25, 1})
+	draw_rect(1.7, top + 0.2, 4, 0.6, {0.2, 0.2, 0.25, 1})
 	bar := [4]f32{0.3, 0.9, 0.4, 1}
 	if game.battery < 0.25 { bar = {0.95, 0.25, 0.2, 1} }
-	draw_rect(1.7, top + 0.2, 6 * game.battery, 0.6, bar)
+	draw_rect(1.7, top + 0.2, 4 * game.battery, 0.6, bar)
+	buf: [32]byte
+	draw_text(fmt.bprintf(buf[:], "%d%%", int(game.battery * 100 + 0.5)), 5.9, top + 0.2)
+	draw_text(fmt.bprintf(buf[:], "Lv%d", game.level), 8.6, top + 0.2)
 
 	// herding progress: one cat icon per cat in the level, bright once it has left through the door
 	for i in 0 ..< game.cat_count {
 		draw_tile(SPR_CAT, 19.0 - f32(game.cat_count - i), top, 1 if i < game.herded else 0.25)
+	}
+
+	switch game.state {
+	case .Intro:
+		draw_panel({
+			"ROBOKITTEH OF SPLORR!!",
+			"",
+			"Herd every cat out the door",
+			"before your battery dies.",
+			"",
+			"Arrows or WASD: move",
+			"Every move drains battery.",
+			"Bump a terminal to recharge.",
+			"Push barrels to block cats.",
+			"Cats wander at random.",
+			"",
+			"Press a key to start",
+		})
+	case .Dead:
+		buf2: [2][48]byte
+		draw_panel({
+			"Battery dead!",
+			"",
+			fmt.bprintf(buf2[0][:], "You reached level %d", game.level),
+			fmt.bprintf(buf2[1][:], "Cats herded: %d", game.total_herded),
+			"",
+			"Press Space to try again",
+		})
+	case .Playing:
+		if game.message != "" {
+			draw_text_centered(game.message, 1.2)
+		}
 	}
 	return true
 }

@@ -25,9 +25,9 @@
 					g.fillRect(0, 0, cv.width, cv.height);
 				},
 				// world units (y up) -> pixels (y down)
-				fill_rect: (x, y, w, h, r, gr, b, tiles) => {
+				fill_rect: (x, y, w, h, r, gr, b, a, tiles) => {
 					const k = cv.width / tiles;
-					g.fillStyle = rgb(r, gr, b);
+					g.fillStyle = rgb(r, gr, b, a);
 					g.fillRect(x * k, cv.height - (y + h) * k, w * k, h * k);
 				},
 			},
@@ -60,15 +60,15 @@
 		};
 		raw.src = "tileset.png";
 		g.imageSmoothingEnabled = false;
-		canvasImports.canvas.draw_sprite = (col, row, x, y, alpha, tiles, blue) => {
+		canvasImports.canvas.draw_sprite = (col, row, x, y, alpha, tiles, blue, size) => {
 			if (!sheet) return;
 			const src = blue ? blueSheet : sheet;
 			const k = cv.width / tiles;
 			g.globalAlpha = alpha;
-			g.drawImage(src, col * 13 + 1, row * 13 + 1, 12, 12, x * k, cv.height - (y + 1) * k, k, k);
+			g.drawImage(src, col * 13 + 1, row * 13 + 1, 12, 12, x * k, cv.height - (y + size) * k, k * size, k * size);
 			g.globalAlpha = 1;
 		};
-		const rgb = (r, g, b) => `rgb(${r * 255 | 0},${g * 255 | 0},${b * 255 | 0})`;
+		const rgb = (r, g, b, a = 1) => `rgba(${r * 255 | 0},${g * 255 | 0},${b * 255 | 0},${a})`;
 		odin.runWasm("game.wasm", document.getElementById("log"), canvasImports);
 	</script>
 </body>
