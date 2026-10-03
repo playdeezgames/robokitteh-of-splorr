@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>Robokitteh of SPLORR!!</title>
+	<style>
+		html, body { margin: 0; height: 100%; background: #111; }
+		body { display: flex; align-items: center; justify-content: center; }
+		canvas { width: min(100vw, 100vh); height: min(100vw, 100vh); background: #000; }
+		#log { position: fixed; left: 0; bottom: 0; margin: 0; color: #aaa; font: 12px monospace; }
+	</style>
+</head>
+<body>
+	<canvas id="canvas" width="800" height="800"></canvas>
+	<pre id="log"></pre>
+	<script src="odin.js"></script>
+	<script>
+		const cv = document.getElementById("canvas");
+		const g = cv.getContext("2d");
+		// Imports for `foreign import canvas "canvas"` in src/main.odin.
+		const canvasImports = {
+			canvas: {
+				clear_canvas: (r, gr, b) => {
+					g.fillStyle = rgb(r, gr, b);
+					g.fillRect(0, 0, cv.width, cv.height);
+				},
+				// world units (y up) -> pixels (y down)
+				fill_rect: (x, y, w, h, r, gr, b, tiles) => {
+					const k = cv.width / tiles;
+					g.fillStyle = rgb(r, gr, b);
+					g.fillRect(x * k, cv.height - (y + h) * k, w * k, h * k);
+				},
+			},
+		};
+		const sheet = new Image();
+		sheet.src = "tileset.png";
+		g.imageSmoothingEnabled = false;
+		canvasImports.canvas.draw_sprite = (col, row, x, y, alpha, tiles) => {
+			if (!sheet.complete || !sheet.naturalWidth) return;
+			const k = cv.width / tiles;
+			g.globalAlpha = alpha;
+			g.drawImage(sheet, col * 13 + 1, row * 13 + 1, 12, 12, x * k, cv.height - (y + 1) * k, k, k);
+			g.globalAlpha = 1;
+		};
+		const rgb = (r, g, b) => `rgb(${r * 255 | 0},${g * 255 | 0},${b * 255 | 0})`;
+		odin.runWasm("game.wasm", document.getElementById("log"), canvasImports);
+	</script>
+</body>
+</html>
