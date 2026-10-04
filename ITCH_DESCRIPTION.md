@@ -29,7 +29,7 @@ Designed in conversation with Claude Code (Claude Sonnet 5.5), which wrote the g
 
 **Credits**
 
-- Art: Urizen 1-bit tileset (CC0)
+- Art: [Urizen 1-bit tileset](https://vurmux.itch.io/urizen-onebit-tileset) by vurmux (CC0)
 - Code: Odin (`js_wasm32`), HTML5 canvas
 - Team: solo developer plus AI
 

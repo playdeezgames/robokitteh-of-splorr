@@ -20,7 +20,7 @@ An instructions screen is shown on start. During play the top panel shows batter
 
 - [Odin](https://odin-lang.org/) compiled to `js_wasm32`, run in the browser with Odin's own `odin.js` runtime (no emscripten).
 - Drawing uses a small 2D canvas shim in `web/index.html` that the Odin code calls through `foreign import`. WebGL was tried first but dropped because some browsers (including software-rendered Linux Chrome) cannot create a context.
-- Sprites are from the Urizen 1-bit tileset (CC0), in `assets/tileset.png`.
+- Sprites are from the [Urizen 1-bit tileset](https://vurmux.itch.io/urizen-onebit-tileset) by vurmux (CC0), in `assets/tileset.png`.
 
 ## Build and run
 
@@ -41,4 +41,4 @@ This project is built with Claude Code (Claude Sonnet 5.5): the Odin code, the w
 
 ## Credits
 
-- Tileset: Urizen 1-bit tileset (CC0).
+- Tileset: [Urizen 1-bit tileset](https://vurmux.itch.io/urizen-onebit-tileset) by vurmux (CC0).
