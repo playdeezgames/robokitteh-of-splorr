@@ -1,3 +1,5 @@
+**Latest version:** https://playdeezgames.github.io/robokitteh-of-splorr/
+
 **Robokitteh of SPLORR!!**
 
 *A metaphor about herding cats. In SPLORR!!*
